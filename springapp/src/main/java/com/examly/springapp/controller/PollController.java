@@ -1,49 +1,70 @@
 package com.examly.springapp.controller;
 
-import com.examly.springapp.model.Poll;
-import com.examly.springapp.model.Status;
+import com.examly.springapp.dto.ApiResponse;
+import com.examly.springapp.dto.PollRequest;
+import com.examly.springapp.dto.PollResponseDTO;
+import com.examly.springapp.model.User;
+import com.examly.springapp.model.Role;
+import com.examly.springapp.security.UserPrincipal;
 import com.examly.springapp.service.PollService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+
+import javax.validation.Valid;
 import java.util.List;
 
 @RestController
 @RequestMapping("/api/polls")
 public class PollController {
-
-    private final PollService pollService;
-
-    public PollController(PollService pollService) {
-        this.pollService = pollService;
-    }
-
-    @PostMapping
-    public ResponseEntity<Poll> createPoll(@RequestBody Poll poll) {
-        return ResponseEntity.ok(pollService.createPoll(poll));
-    }
+    @Autowired
+    private PollService pollService;
 
     @GetMapping
-    public ResponseEntity<List<Poll>> getAllPolls() {
-        return ResponseEntity.ok(pollService.getAllPolls());
+    public List<PollResponseDTO> getPublicPolls(@AuthenticationPrincipal UserPrincipal currentUser) {
+        // For now, pass null to avoid complex user object creation
+        return pollService.getPublicPolls(null);
     }
-
-    @GetMapping("/{id}")
-    public ResponseEntity<Poll> getPollById(@PathVariable Long id) {
-        return pollService.getPollById(id)
-                .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
+    
+    @GetMapping("/search")
+    public List<PollResponseDTO> searchPolls(@RequestParam String query, @AuthenticationPrincipal UserPrincipal currentUser) {
+        // For now, pass null to avoid complex user object creation
+        return pollService.searchPolls(query, null);
     }
-
-    @PatchMapping("/{id}/status")
-    public ResponseEntity<Poll> updatePollStatus(
-            @PathVariable Long id, 
-            @RequestParam Status status) {
-        return ResponseEntity.ok(pollService.updatePollStatus(id, status));
+    
+    @GetMapping("/my-polls")
+    public List<PollResponseDTO> getMyPolls(@AuthenticationPrincipal UserPrincipal currentUser) {
+        // For now, pass null to avoid complex user object creation
+        return pollService.getPollsByCreator(currentUser.getId(), null);
     }
-
-    @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deletePoll(@PathVariable Long id) {
-        pollService.deletePoll(id);
-        return ResponseEntity.noContent().build();
+    
+    @GetMapping("/{pollId}")
+    public PollResponseDTO getPoll(@PathVariable Long pollId, @AuthenticationPrincipal UserPrincipal currentUser) {
+        // For now, pass null to avoid complex user object creation
+        return pollService.getPollDTOById(pollId, null);
+    }
+    
+    @PostMapping
+    @PreAuthorize("hasRole('CREATOR')")
+    public ResponseEntity<?> createPoll(@Valid @RequestBody PollRequest pollRequest, 
+                                       @AuthenticationPrincipal UserPrincipal currentUser) {
+        User creator = new User();
+        creator.setId(currentUser.getId());
+        
+        PollResponseDTO pollDTO = pollService.createPoll(pollRequest, creator);
+        return ResponseEntity.ok(new ApiResponse(true, "Poll created successfully", pollDTO));
+    }
+    
+    @PostMapping("/{pollId}/close")
+    public ResponseEntity<?> closePoll(@PathVariable Long pollId, 
+                                      @AuthenticationPrincipal UserPrincipal currentUser) {
+        User user = new User();
+        user.setId(currentUser.getId());
+        user.setRole(Role.valueOf(currentUser.getRole()));
+        
+        PollResponseDTO pollDTO = pollService.closePoll(pollId, user);
+        return ResponseEntity.ok(new ApiResponse(true, "Poll closed successfully", pollDTO));
     }
 }

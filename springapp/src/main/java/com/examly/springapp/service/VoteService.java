@@ -1,56 +1,66 @@
 package com.examly.springapp.service;
 
 import com.examly.springapp.model.*;
-import com.examly.springapp.repository.*;
+import com.examly.springapp.repository.OptionRepository;
+import com.examly.springapp.repository.VoteRepository;
+import com.examly.springapp.exception.ResourceNotFoundException;
+import com.examly.springapp.exception.UnauthorizedException;
+import com.examly.springapp.exception.AlreadyVotedException; // Add this import
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import com.examly.springapp.model.Status;
 
 @Service
 public class VoteService {
-
-    private final VoteRepository voteRepository;
-    private final PollRepository pollRepository;
-    private final OptionRepository optionRepository;
-    private final UserRepository userRepository;
-
-    public VoteService(VoteRepository voteRepository, 
-                     PollRepository pollRepository,
-                     OptionRepository optionRepository,
-                     UserRepository userRepository) {
-        this.voteRepository = voteRepository;
-        this.pollRepository = pollRepository;
-        this.optionRepository = optionRepository;
-        this.userRepository = userRepository;
-    }
+    @Autowired
+    private VoteRepository voteRepository;
+    
+    @Autowired
+    private OptionRepository optionRepository;
+    
+    @Autowired
+    private PollService pollService;
 
     @Transactional
-    public Vote castVote(Long pollId, Long optionId, Long voterId) {
-        Poll poll = pollRepository.findById(pollId)
-                .orElseThrow(() -> new RuntimeException("Poll not found"));
+    public Vote castVote(Long pollId, Long optionId, User voter) {
+        Poll poll = pollService.getPollById(pollId);
         
-        if (poll.getStatus() != Status.OPEN) {
-            throw new RuntimeException("Poll is closed");
+        // Check if user can vote in this poll
+        if (!pollService.canUserVoteInPoll(pollId, voter)) {
+            throw new UnauthorizedException("You cannot vote in this poll");
         }
-
-        if (voteRepository.existsByPollIdAndVoterId(pollId, voterId)) {
-            throw new RuntimeException("User already voted in this poll");
+        
+        // Check if user has already voted in this poll
+        if (voter != null && voteRepository.existsByPollIdAndVoterId(pollId, voter.getId())) {
+            throw new AlreadyVotedException("You have already voted in this poll"); // Changed to custom exception
         }
-
+        
         Option option = optionRepository.findById(optionId)
-                .orElseThrow(() -> new RuntimeException("Option not found"));
-
-        User voter = userRepository.findById(voterId)
-                .orElseThrow(() -> new RuntimeException("User not found"));
-
+                .orElseThrow(() -> new ResourceNotFoundException("Option not found with id: " + optionId));
+        
+        // Verify the option belongs to the poll
+        if (!option.getPoll().getId().equals(pollId)) {
+            throw new IllegalArgumentException("Option does not belong to the specified poll");
+        }
+        
+        // Create vote record
         Vote vote = new Vote();
         vote.setPoll(poll);
         vote.setOption(option);
         vote.setVoter(voter);
-        vote.setTimestamp(java.time.LocalDateTime.now());
-
-        optionRepository.incrementVoteCount(optionId);
-
+        
+        // Increment vote count
+        option.setVoteCount(option.getVoteCount() + 1);
+        optionRepository.save(option);
+        
         return voteRepository.save(vote);
+    }
+    
+    public boolean hasUserVoted(Long pollId, Long userId) {
+        return voteRepository.existsByPollIdAndVoterId(pollId, userId);
+    }
+    
+    public Long getVoteCountForPoll(Long pollId) {
+        return voteRepository.countByPollId(pollId);
     }
 }

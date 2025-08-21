@@ -1,53 +1,42 @@
 package com.examly.springapp.service;
 
+import com.examly.springapp.dto.RegisterRequest;
 import com.examly.springapp.model.User;
 import com.examly.springapp.model.Role;
 import com.examly.springapp.repository.UserRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-import java.util.List;
-import java.util.Optional;
 
 @Service
 public class UserService {
+    @Autowired
+    private UserRepository userRepository;
+    
+    @Autowired
+    private PasswordEncoder passwordEncoder;
 
-    private final UserRepository userRepository;
-
-    // Removed PasswordEncoder dependency
-    public UserService(UserRepository userRepository) {
-        this.userRepository = userRepository;
-    }
-
-    public User registerUser(User user) {
-        // Removed password encoding
-        return userRepository.save(user);
-    }
-
-    public Optional<User> getUserById(Long id) {
-        return userRepository.findById(id);
-    }
-
-    public List<User> getAllUsers() {
-        return userRepository.findAll();
-    }
-
-    public User updateUser(Long id, User userDetails) {
-        return userRepository.findById(id)
-                .map(user -> {
-                    user.setName(userDetails.getName());
-                    user.setEmail(userDetails.getEmail());
-                    // Removed password encoding
-                    if (userDetails.getPasswordHash() != null) {
-                        user.setPasswordHash(userDetails.getPasswordHash());
-                    }
-                    return userRepository.save(user);
-                }).orElseThrow(() -> new RuntimeException("User not found"));
-    }
-
-    public void deleteUser(Long id) {
-        userRepository.deleteById(id);
-    }
-
-    public long countByRole(Role role) {
-        return userRepository.countByRole(role);
+    public User registerUser(RegisterRequest registerRequest) {
+        if (userRepository.existsByEmail(registerRequest.getEmail())) {
+            throw new RuntimeException("Email address already in use.");
+        }
+        
+        User user = new User();
+        user.setName(registerRequest.getName());
+        user.setEmail(registerRequest.getEmail());
+        user.setPasswordHash(passwordEncoder.encode(registerRequest.getPassword()));
+        
+        // Default role is VOTER if not specified
+        if (registerRequest.getRole() == null || registerRequest.getRole().isEmpty()) {
+            user.setRole(Role.VOTER);
+        } else {
+            try {
+                user.setRole(Role.valueOf(registerRequest.getRole().toUpperCase()));
+            } catch (IllegalArgumentException e) {
+                user.setRole(Role.VOTER);
+            }
+        }
+        
+        return userRepository.save(user); // Ensure the saved user is returned
     }
 }
